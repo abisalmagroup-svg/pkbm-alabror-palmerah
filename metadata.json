@@ -1,0 +1,6 @@
+{
+  "name": "PKBM AL-ABROR",
+  "description": "Portal Web Resmi PKBM AL-ABROR - Sistem Informasi Pendidikan Kesetaraan Paket A, B, C, PPDB Online, dan Pembayaran Biaya Pendidikan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
