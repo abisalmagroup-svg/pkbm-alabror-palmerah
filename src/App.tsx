@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { NavTab, PPDBRegistration, PPDBVerificationSettings, StudentData, UserAccount } from './types';
 import { INITIAL_PPDB_REGISTRATIONS, DEFAULT_PPDB_VERIFICATION_SETTINGS, INITIAL_STUDENTS, INITIAL_USER_ACCOUNTS } from './data/mockData';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { fetchSiteConfigFromSupabase } from './data/siteConfig';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { BerandaView } from './components/BerandaView';
@@ -67,9 +69,48 @@ export default function App() {
     localStorage.setItem('pkbm_user_accounts', JSON.stringify(userAccounts));
   }, [userAccounts]);
 
+  // Fetch Students from Supabase
+  useEffect(() => {
+    const fetchStudentsFromSupabase = async () => {
+      if (!isSupabaseConfigured) return;
+      try {
+        const { data, error } = await supabase.from('students').select('*');
+        if (error) {
+          console.error("Error fetching students from Supabase:", error.message);
+          return;
+        }
+        
+        if (data && data.length > 0) {
+          // Map to match the expected StudentData format for the UI
+          const mappedStudents: StudentData[] = data.map((row: any) => ({
+            id: row.id,
+            nis: row.nis || '',
+            name: row.name || 'Unknown',
+            program: row.major || 'Paket C', // Fallback to a valid program enum
+            classGrade: row.class_id || 'X',
+            status: 'Aktif', // Default
+            parentName: row.parent_name || '',
+            parentPhone: row.parent_phone || '',
+            registrationDate: row.created_at ? new Date(row.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          }));
+          
+          setStudents(mappedStudents);
+        }
+      } catch (err) {
+        console.error("Failed to fetch from Supabase", err);
+      }
+    };
+
+    fetchStudentsFromSupabase();
+  }, []);
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [activeTab]);
+
+  useEffect(() => {
+    fetchSiteConfigFromSupabase();
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#f9f9f9] text-[#1a1c1c] font-sans antialiased selection:bg-[#735c00] selection:text-white">

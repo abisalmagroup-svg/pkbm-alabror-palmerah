@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   PPDBRegistration,
   StudentData,
@@ -20,6 +20,7 @@ import {
   DEFAULT_PPDB_VERIFICATION_SETTINGS,
   DEFAULT_FEE_CATEGORIES,
 } from '../data/mockData';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { AdminGoogleSheetsSync } from './AdminGoogleSheetsSync';
 import { LandingPageCustomizer } from './LandingPageCustomizer';
 import { DapodikPrintSheet } from './DapodikPrintSheet';
@@ -559,63 +560,184 @@ export const SuperadminDashboard: React.FC<SuperadminDashboardProps> = ({
   };
 
   // Student Actions
-  const handleSaveStudent = (e: React.FormEvent) => {
+  const handleSaveStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editStudentModal) {
+      try {
+        const { error } = await supabase.from('students').update({
+          nis: studentForm.nis || '',
+          name: studentForm.name || 'Unknown',
+          major: studentForm.program as string,
+          class_id: studentForm.classGrade || 'X',
+          parent_name: studentForm.parentName || '',
+          parent_phone: studentForm.parentPhone || ''
+        }).eq('id', editStudentModal.id);
+        
+        if (error) console.error("Update failed:", error.message);
+      } catch (err) {
+        console.error("Database update exception:", err);
+      }
+
       setStudents((prev) =>
         prev.map((item) => (item.id === editStudentModal.id ? ({ ...item, ...studentForm } as StudentData) : item))
       );
       setEditStudentModal(null);
     } else {
-      const newS: StudentData = {
-        id: `s_${Date.now()}`,
-        nis: studentForm.nis || '202400999',
-        name: studentForm.name || 'Siswa Baru',
-        program: studentForm.program as any || 'Paket C',
-        classGrade: studentForm.classGrade || 'Kelas 10',
-        status: studentForm.status as any || 'Aktif',
-        parentName: studentForm.parentName || 'Orang Tua',
-        parentPhone: studentForm.parentPhone || '081234567890',
-        registrationDate: new Date().toISOString().split('T')[0],
-      };
-      setStudents((prev) => [newS, ...prev]);
+      try {
+        const { data, error } = await supabase.from('students').insert({
+          nis: studentForm.nis || '202400999',
+          name: studentForm.name || 'Siswa Baru',
+          major: studentForm.program as string || 'Paket C',
+          class_id: studentForm.classGrade || 'Kelas 10',
+          parent_name: studentForm.parentName || 'Orang Tua',
+          parent_phone: studentForm.parentPhone || '081234567890',
+        }).select();
+
+        if (error) {
+          console.error("Insert failed:", error.message);
+        }
+
+        const newS: StudentData = {
+          id: data && data.length > 0 ? data[0].id : `s_${Date.now()}`,
+          nis: studentForm.nis || '202400999',
+          name: studentForm.name || 'Siswa Baru',
+          program: studentForm.program as any || 'Paket C',
+          classGrade: studentForm.classGrade || 'Kelas 10',
+          status: studentForm.status as any || 'Aktif',
+          parentName: studentForm.parentName || 'Orang Tua',
+          parentPhone: studentForm.parentPhone || '081234567890',
+          registrationDate: new Date().toISOString().split('T')[0],
+        };
+        setStudents((prev) => [newS, ...prev]);
+      } catch (err) {
+        console.error("Database insert exception:", err);
+      }
       setAddStudentModalOpen(false);
     }
   };
 
-  const handleDeleteStudent = (id: string) => {
+  const handleDeleteStudent = async (id: string) => {
     if (confirm('Apakah Anda yakin ingin menghapus data siswa ini?')) {
+      try {
+        const { error } = await supabase.from('students').delete().eq('id', id);
+        if (error) console.error("Delete failed:", error.message);
+      } catch (err) {
+        console.error("Database delete exception:", err);
+      }
       setStudents((prev) => prev.filter((s) => s.id !== id));
     }
   };
 
   // Payment Actions
-  const handleSavePayment = (e: React.FormEvent) => {
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      if (!isSupabaseConfigured) return;
+      try {
+        const { data, error } = await supabase.from('transactions').select(`
+          id,
+          invoice_number,
+          amount,
+          payment_method,
+          status,
+          date,
+          notes,
+          student_id,
+          students (
+            nis,
+            name
+          )
+        `).order('date', { ascending: false });
+
+        if (error) {
+          console.error("Error fetching transactions:", error.message);
+          return;
+        }
+
+        if (data && data.length > 0) {
+          const mappedPayments: PaymentHistoryItem[] = data.map((t: any) => ({
+            id: t.id,
+            title: t.notes || 'Pembayaran',
+            date: new Date(t.date).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' }),
+            amount: Number(t.amount),
+            status: t.status === 'completed' ? 'Lunas' : (t.status === 'pending' ? 'Tertunda' : 'Diproses'),
+            method: t.payment_method,
+            nis: t.students?.nis || '',
+            studentName: t.students?.name || 'Unknown',
+            referenceNo: t.invoice_number,
+          }));
+          setPayments(mappedPayments);
+        }
+      } catch (err) {
+        console.error("Failed to fetch transactions", err);
+      }
+    };
+    fetchTransactions();
+  }, []);
+
+  const handleSavePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editPaymentModal) {
+      try {
+        const { error } = await supabase.from('transactions').update({
+          amount: Number(paymentForm.amount) || 0,
+          payment_method: paymentForm.method || 'Transfer Bank',
+          status: paymentForm.status === 'Lunas' ? 'completed' : (paymentForm.status === 'Tertunda' ? 'pending' : 'processing'),
+          notes: paymentForm.title || 'SPP Bulanan'
+        }).eq('id', editPaymentModal.id);
+        
+        if (error) console.error("Update payment failed:", error.message);
+      } catch (err) {
+        console.error("Database update exception:", err);
+      }
+
       setPayments((prev) =>
-        prev.map((item) => (item.id === editPaymentModal.id ? ({ ...item, ...paymentForm } as PaymentHistoryItem) : item))
+        prev.map((item) => (item.id === editPaymentModal.id ? ({ ...item, ...paymentForm, amount: Number(paymentForm.amount) } as PaymentHistoryItem) : item))
       );
       setEditPaymentModal(null);
     } else {
-      const newP: PaymentHistoryItem = {
-        id: `pay_${Date.now()}`,
-        title: paymentForm.title || 'SPP Bulanan',
-        date: paymentForm.date || 'Hari ini',
-        amount: Number(paymentForm.amount) || 250000,
-        status: paymentForm.status as any || 'Lunas',
-        method: paymentForm.method || 'Transfer Bank',
-        nis: paymentForm.nis || '202400123',
-        studentName: paymentForm.studentName || 'Siswa',
-        referenceNo: paymentForm.referenceNo || `INV/${Date.now()}`,
-      };
-      setPayments((prev) => [newP, ...prev]);
+      const student = students.find((s) => s.nis === paymentForm.nis);
+      
+      try {
+        const { data, error } = await supabase.from('transactions').insert({
+          invoice_number: paymentForm.referenceNo || `INV/${Date.now()}`,
+          student_id: student?.id || null, // Will error if null or invalid UUID, but we catch it
+          amount: Number(paymentForm.amount) || 250000,
+          payment_method: paymentForm.method || 'Transfer Bank',
+          status: paymentForm.status === 'Lunas' ? 'completed' : (paymentForm.status === 'Tertunda' ? 'pending' : 'processing'),
+          notes: paymentForm.title || 'SPP Bulanan'
+        }).select();
+
+        if (error) {
+          console.error("Insert payment failed:", error.message);
+        }
+
+        const newP: PaymentHistoryItem = {
+          id: data && data.length > 0 ? data[0].id : `pay_${Date.now()}`,
+          title: paymentForm.title || 'SPP Bulanan',
+          date: new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric' }),
+          amount: Number(paymentForm.amount) || 250000,
+          status: paymentForm.status as any || 'Lunas',
+          method: paymentForm.method || 'Transfer Bank',
+          nis: paymentForm.nis || '202400123',
+          studentName: paymentForm.studentName || 'Siswa',
+          referenceNo: data && data.length > 0 ? data[0].invoice_number : (paymentForm.referenceNo || `INV/${Date.now()}`),
+        };
+        setPayments((prev) => [newP, ...prev]);
+      } catch (err) {
+        console.error("Database insert exception:", err);
+      }
       setAddPaymentModalOpen(false);
     }
   };
 
-  const handleDeletePayment = (id: string) => {
+  const handleDeletePayment = async (id: string) => {
     if (confirm('Apakah Anda yakin ingin menghapus catatan transaksi ini?')) {
+      try {
+        const { error } = await supabase.from('transactions').delete().eq('id', id);
+        if (error) console.error("Delete payment failed:", error.message);
+      } catch (err) {
+        console.error("Database delete exception:", err);
+      }
       setPayments((prev) => prev.filter((p) => p.id !== id));
     }
   };

@@ -1,3 +1,5 @@
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+
 export interface SiteConfig {
   // Brand & General
   schoolName: string;
@@ -108,11 +110,49 @@ export function getStoredSiteConfig(): SiteConfig {
   return DEFAULT_SITE_CONFIG;
 }
 
-export function saveStoredSiteConfig(config: SiteConfig): void {
+export async function fetchSiteConfigFromSupabase(): Promise<void> {
+  if (!isSupabaseConfigured) return;
   try {
+    const { data, error } = await supabase
+      .from('site_settings')
+      .select('config_value')
+      .eq('config_key', 'main_config')
+      .single();
+    
+    // Ignore PGRST116 (No rows found)
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error fetching site config from Supabase:', error.message);
+      return;
+    }
+
+    if (data && data.config_value) {
+      const mergedConfig = { ...DEFAULT_SITE_CONFIG, ...data.config_value };
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(mergedConfig));
+      window.dispatchEvent(new Event('site_config_updated'));
+    }
+  } catch (err) {
+    console.error('Exception fetching site config from Supabase:', err);
+  }
+}
+
+export async function saveStoredSiteConfig(config: SiteConfig): Promise<void> {
+  try {
+    // 1. Save locally for immediate UI update
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(config));
     window.dispatchEvent(new Event('site_config_updated'));
+
+    if (!isSupabaseConfigured) return;
+
+    // 2. Sync to Supabase in the background
+    const { error } = await supabase.from('site_settings').upsert({ 
+      config_key: 'main_config', 
+      config_value: config 
+    }, { onConflict: 'config_key' });
+
+    if (error) {
+       console.error("Error saving site config to Supabase:", error.message);
+    }
   } catch (err) {
-    console.error('Error saving site config to localStorage:', err);
+    console.error('Error saving site config:', err);
   }
 }

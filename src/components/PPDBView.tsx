@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NavTab, PPDBRegistration, PPDBVerificationSettings } from '../types';
 import { DEFAULT_PPDB_VERIFICATION_SETTINGS, INITIAL_PPDB_REGISTRATIONS } from '../data/mockData';
+import { supabase } from '../lib/supabase';
 import { DapodikPrintSheet } from './DapodikPrintSheet';
 import { generateRegNumber, resolveDefaultPassword, getRegistrationFeeForProgram, getProgramFeeDetails, getNewStudentFeeDetails, getActiveStudentFeeDetails, getProgramLabel } from '../utils/ppdbUtils';
 import {
@@ -156,7 +157,7 @@ export const PPDBView: React.FC<PPDBViewProps> = ({
     { id: 6, label: 'Unggah Berkas DAPODIK', icon: Upload },
   ];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName || !nik || !program || !parentName || !parentPhone || !namaIbu) {
       alert('Mohon melengkapi kolom utama: Nama Lengkap Siswa, NIK, Program Pilihan, Nama Ayah & Ibu, serta No. HP WA Kontak.');
@@ -241,6 +242,32 @@ export const PPDBView: React.FC<PPDBViewProps> = ({
 
     setSubmittedData(newReg);
     updatePpdbList((prev) => [newReg, ...prev]);
+
+    try {
+      const classIdMap: Record<string, string> = {
+        'paket_a': 'SD',
+        'paket_b': 'SMP',
+        'paket_c': 'SMA'
+      };
+      
+      const { error } = await supabase.from('students').insert({
+        nis: regNum,
+        name: fullName,
+        class_id: classIdMap[program || 'paket_c'] || 'X',
+        major: program === 'paket_c' ? 'IPS' : (program === 'paket_b' ? 'Paket B' : 'Paket A'),
+        phone: phone || parentPhone,
+        email: email || '',
+        parent_name: parentName,
+        parent_phone: parentPhone,
+        address: `${alamatJalan || ''} ${dusunKelurahan || ''} ${kecamatan || ''}`.trim()
+      });
+
+      if (error) {
+        console.error("Gagal menyimpan pendaftar ke Supabase:", error.message);
+      }
+    } catch (err) {
+      console.error("Database exception:", err);
+    }
   };
 
   const getProgramLabel = (p: string) => {
